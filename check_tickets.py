@@ -81,8 +81,8 @@ def main():
         sys.exit(2)  # kode 2 = error jaringan, workflow bisa mencoba lagi nanti
 
     if not tickets:
-        print("Tiket BELUM tersedia (data masih kosong).")
-        sys.exit(1)  # kode 1 = belum tersedia
+        print("Tiket BELUM tersedia (data masih kosong). Monitor akan cek lagi.")
+        sys.exit(0)  # belum tersedia = kondisi normal, run dianggap sukses
 
     print(f"TIKET TERSEDIA! Jumlah entri: {len(tickets)}")
     message = (

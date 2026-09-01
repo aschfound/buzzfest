@@ -1,0 +1,16 @@
+name: Tes Notifikasi Telegram
+
+on:
+  workflow_dispatch: {}  # hanya dijalankan manual
+
+jobs:
+  tes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kirim pesan tes ke Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python test_notifikasi.py

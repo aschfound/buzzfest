@@ -1,0 +1,20 @@
+name: Monitor Tiket Buzz Youth Fest #5
+
+on:
+  schedule:
+    # Setiap 5 menit (GitHub Actions tidak menjamin tepat waktu,
+    # biasanya telat 0-10 menit). Zona waktu server: UTC.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}  # bisa dijalankan manual dari tab Actions
+
+jobs:
+  cek-tiket:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cek ketersediaan tiket
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python check_tickets.py

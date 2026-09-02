@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Monitor tiket Buzz Youth Fest #5 (via API resmi Artatix).
-# Menampilkan detail kategori, harga berformat Rupiah, dan status Sold Out / Ready.
+# Akurasi status Realtime per Kategori Tiket.
 
 import json
 import os
@@ -33,12 +33,44 @@ def format_rupiah(amount):
     except (ValueError, TypeError):
         return str(amount)
 
-def parse_ticket_info(t):
-    """Ambil detail Kategori, Harga, dan Status Tiket dari objek API."""
+def check_is_available(t):
+    """
+    Memeriksa seluruh kemungkinan parameter Sold Out pada API Artatix.
+    """
     if not isinstance(t, dict):
-        return {"category": "Tiket", "price": "", "is_available": True}
+        return False
 
-    # Ambil Nama Kategori spesifik
+    # 1. Cek penanda sold out eksplisit
+    is_sold_out = t.get("is_sold_out") or t.get("isSoldOut") or t.get("is_soldout")
+    if is_sold_out in [True, 1, "1", "true", "True"]:
+        return False
+
+    # 2. Cek status teks
+    status = str(t.get("status", "")).lower()
+    if status in ["sold_out", "soldout", "unavailable", "inactive"]:
+        return False
+
+    # 3. Cek stok/kuota tersisa
+    quota_keys = ["stock", "quota", "remaining_quota", "available_stock", "qty"]
+    for key in quota_keys:
+        if key in t and t[key] is not None:
+            try:
+                if int(t[key]) <= 0:
+                    return False
+            except (ValueError, TypeError):
+                pass
+
+    # 4. Cek apakah ada sub-kategori/varian di dalamnya
+    categories = t.get("ticket_categories") or t.get("categories") or t.get("variants")
+    if isinstance(categories, list) and len(categories) > 0:
+        sub_available = any(check_is_available(sub) for sub in categories)
+        if not sub_available:
+            return False
+
+    return True
+
+def parse_ticket_info(t):
+    """Ambil Kategori, Harga, dan Status Realtime."""
     category = (
         t.get("ticket_category_name") 
         or t.get("category_name") 
@@ -47,18 +79,10 @@ def parse_ticket_info(t):
         or "Kategori Tiket"
     )
 
-    # Format Harga
     raw_price = t.get("price") or t.get("price_formatted") or 0
     price_str = format_rupiah(raw_price)
 
-    # Cek Status Ketersediaan
-    is_sold_out = t.get("is_sold_out") or t.get("isSoldOut")
-    status = str(t.get("status", "")).lower()
-    stock = t.get("stock") if t.get("stock") is not None else t.get("quota")
-
-    is_available = True
-    if is_sold_out is True or status == "sold_out" or stock == 0:
-        is_available = False
+    is_available = check_is_available(t)
 
     return {
         "category": str(category).replace("*", "").replace("_", ""),
@@ -67,7 +91,7 @@ def parse_ticket_info(t):
     }
 
 def summarize_all(tickets):
-    """Format daftar seluruh kategori tiket beserta harganya dan indikator statusnya."""
+    """Format daftar status kategori tiket."""
     lines = []
     has_ready = False
 
@@ -130,9 +154,9 @@ def main():
 
     summary_text, has_ready_ticket = summarize_all(tickets)
 
-    # Hanya kirim pesan jika setidaknya ada 1 tiket yang statusnya READY / RESTOCK
+    # Hanya kirim pesan jika ADA setidaknya 1 tiket yang READY / RESTOCK
     if not has_ready_ticket:
-        print("Semua kategori tiket saat ini SOLD OUT. Tidak menyepam Telegram.")
+        print("Semua kategori tiket saat ini SOLD OUT. Tidak mengirim notifikasi ke Telegram.")
         sys.exit(0)
 
     print("Ditemukan tiket READY! Mengirim notifikasi...")

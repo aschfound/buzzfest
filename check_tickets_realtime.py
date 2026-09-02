@@ -31,7 +31,7 @@ TICKETS_TO_CHECK = [
 ]
 
 def check_single_ticket_stock(ticket_id):
-    """Mengecek stok realtime ke endpoint checkstock."""
+    """Mengecek stok realtime dengan memeriksa detail data respon."""
     payload = {"tickets": [{"id": ticket_id, "qty": 1}]}
     data_bytes = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(CHECKSTOCK_URL, data=data_bytes, headers=HEADERS, method="POST")
@@ -39,12 +39,40 @@ def check_single_ticket_stock(ticket_id):
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             res_json = json.loads(resp.read().decode("utf-8"))
-            # Jika respon success = True, berarti tiket benar-benar ready/ada stok
-            if res_json.get("message") == "success" or res_json.get("data", {}).get("success") is True:
-                return True
-            return False
+            data = res_json.get("data")
+
+            # Jika data bernilai None / False / Empty
+            if not data:
+                return False
+
+            # Cek berbagai kemungkinan struktur data stok dari Artatix
+            if isinstance(data, dict):
+                # 1. Cek jika ada penanda boolean eksplisit
+                if data.get("success") is False or data.get("is_available") is False or data.get("is_sold_out") is True:
+                    return False
+                
+                # 2. Cek kuota / stok fisik
+                stock = data.get("stock") if data.get("stock") is not None else data.get("available_stock")
+                if stock is not None and int(stock) <= 0:
+                    return False
+                
+                # 3. Cek teks status
+                status = str(data.get("status", "")).lower()
+                if status in ["sold_out", "sold out", "unavailable"]:
+                    return False
+
+            elif isinstance(data, list) and len(data) > 0:
+                first_item = data[0]
+                if isinstance(first_item, dict):
+                    stock = first_item.get("stock")
+                    if stock is not None and int(stock) <= 0:
+                        return False
+                    if str(first_item.get("status", "")).lower() in ["sold_out", "sold out"]:
+                        return False
+
+            return True
     except Exception:
-        # Jika HTTP Error (stok habis / bad request)
+        # Jika HTTP Error (biasanya 400 Bad Request jika stok habis)
         return False
 
 def send_telegram(message):
@@ -53,7 +81,7 @@ def send_telegram(message):
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
     
     if not token or not chat_id:
-        print("PERINGATAN: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID belum diatur di environment.")
+        print("PERINGATAN: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID belum diatur.")
         print(message)
         return False
 

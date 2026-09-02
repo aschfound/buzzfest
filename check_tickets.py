@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Monitor tiket Buzz Youth Fest #5 (via API resmi Artatix).
-# Cek ketersediaan tiket; jika tersedia, kirim notifikasi Telegram + Tombol Direct Link.
+# Cek ketersediaan tiket & status Sold Out secara realtime.
 
 import json
 import os
@@ -25,21 +25,37 @@ def get_tickets():
         body = json.loads(resp.read().decode("utf-8"))
     return body.get("data") or []
 
+def filter_available_tickets(tickets):
+    """
+    Menyaring tiket yang BENAR-BENAR bisa dibeli.
+    Mengecek variabel stok/status yang biasa dipakai API Artatix.
+    """
+    available = []
+    for t in tickets:
+        if isinstance(t, dict):
+            # Cek berbagai atribut ketersediaan yang umum di API Artatix
+            is_sold_out = t.get("is_sold_out") or t.get("isSoldOut")
+            status = str(t.get("status", "")).lower()
+            stock = t.get("stock") or t.get("quota") or t.get("available_stock")
+
+            # Jika penanda sold_out bernilai True atau status == sold_out, lewati
+            if is_sold_out is True or status == "sold_out" or stock == 0:
+                continue
+
+            available.append(t)
+    return available
+
 def summarize(tickets):
-    """Ambil nama kategori & harga dari struktur data API (tanpa Markdown berbahaya)."""
+    """Format daftar tiket yang tersedia."""
     lines = []
     for t in tickets[:8]:
-        if isinstance(t, dict):
-            name = t.get("name") or t.get("title") or t.get("category") or "Tiket"
-            price = t.get("price") or t.get("price_formatted") or ""
-            # Menghapus karakter khusus yang bisa merusak parse_mode Telegram
-            name = str(name).replace("*", "").replace("_", "")
-            if price:
-                lines.append(f"• {name}: {price}")
-            else:
-                lines.append(f"• {name}")
+        name = t.get("name") or t.get("title") or "Tiket"
+        price = t.get("price") or t.get("price_formatted") or ""
+        name = str(name).replace("*", "").replace("_", "")
+        if price:
+            lines.append(f"• {name}: {price}")
         else:
-            lines.append("• Tiket tersedia")
+            lines.append(f"• {name}")
     return "\n".join(lines) if lines else "• Tiket tersedia!"
 
 def send_telegram_with_buttons(message, tickets):
@@ -50,7 +66,6 @@ def send_telegram_with_buttons(message, tickets):
         print(message)
         return False
 
-    # Buat tombol sederhana ke halaman pembelian utama
     inline_keyboard = [
         [{"text": "🎟️ Beli Tiket Sekarang", "url": BUY_URL}]
     ]
@@ -70,10 +85,7 @@ def send_telegram_with_buttons(message, tickets):
 
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            status = resp.getcode()
-            text = resp.read().decode("utf-8", "replace")[:200]
-            print(f"Telegram HTTP {status}: {text}")
-            return status == 200
+            return resp.getcode() == 200
     except Exception as e:
         print(f"Gagal mengirim pesan Telegram: {e}")
         return False
@@ -81,23 +93,31 @@ def send_telegram_with_buttons(message, tickets):
 def main():
     print(f"Mengecek {API_URL} ...")
     try:
-        tickets = get_tickets()
+        all_tickets = get_tickets()
     except Exception as e:
         print(f"Gagal menghubungi API: {e}")
         sys.exit(2)
 
-    if not tickets:
-        print("Tiket BELUM tersedia (data masih kosong). Monitor akan cek lagi.")
+    if not all_tickets:
+        print("Tiket BELUM rilis di API.")
         sys.exit(0)
 
-    print(f"TIKET TERSEDIA! Jumlah entri: {len(tickets)}")
+    # Filter hanya tiket yang masih ada stoknya (tidak Sold Out)
+    available_tickets = filter_available_tickets(all_tickets)
+
+    if not available_tickets:
+        print("Semua kategori tiket saat ini SOLD OUT. Menunggu restock...")
+        sys.exit(0)
+
+    # Jika ada tiket yang mendadak ready/restock:
+    print(f"TIKET READY/RESTOCK! Jumlah tersedia: {len(available_tickets)}")
     message = (
-        "⚡ TIKET BUZZ YOUTH FEST #5 SUDAH TERSEDIA!\n\n"
-        f"{summarize(tickets)}\n\n"
-        "Klik tombol di bawah untuk langsung membuka halaman pembelian:"
+        "⚡ TIKET BUZZ YOUTH FEST #5 READY / RESTOCK!\n\n"
+        f"{summarize(available_tickets)}\n\n"
+        "Segera buka link pembelian sebelum habis lagi!"
     )
     
-    send_telegram_with_buttons(message, tickets)
+    send_telegram_with_buttons(message, available_tickets)
     sys.exit(0)
 
 if __name__ == "__main__":
